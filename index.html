@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RupeeTrack - Modern Expense Tracker</title>
+  <meta name="description" content="A simple, modern, and beginner-friendly expense tracker app to manage daily and monthly finances in ₹ (Rupees).">
+  
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <i class="fa-solid fa-wallet"></i>
+        </div>
+        <div>
+          <h1>RupeeTrack</h1>
+          <p class="subtitle">Smart Personal Expense Manager</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="add-expense-btn" class="btn btn-primary">
+          <i class="fa-solid fa-plus"></i>
+          <span>Add Expense</span>
+        </button>
+        <button id="export-csv-btn" class="btn btn-outline" title="Export Expenses to CSV">
+          <i class="fa-solid fa-file-csv"></i>
+          <span class="btn-text-desktop">Export CSV</span>
+        </button>
+        <button id="reset-data-btn" class="btn btn-outline-danger" title="Reset sample demo data">
+          <i class="fa-solid fa-rotate-right"></i>
+          <span class="btn-text-desktop">Reset Demo</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Monthly Summary Highlight Banner -->
+    <section class="banner-card">
+      <div class="banner-content">
+        <div class="banner-tag">
+          <i class="fa-solid fa-calendar-check"></i> Monthly Overview
+        </div>
+        <h2 class="banner-title" id="monthly-summary-banner">
+          Your total expense this month is <span class="highlight-amount">₹0.00</span>.
+        </h2>
+        <p class="banner-subtext">Track every rupee to build healthy spending habits!</p>
+      </div>
+      <div class="banner-badge">
+        <i class="fa-solid fa-chart-line"></i>
+      </div>
+    </section>
+
+    <!-- Dashboard Statistics Grid -->
+    <section class="dashboard-grid">
+      <!-- Today's Total Expense -->
+      <div class="stat-card stat-today">
+        <div class="stat-icon-wrapper">
+          <i class="fa-solid fa-sun"></i>
+        </div>
+        <div class="stat-info">
+          <span class="stat-label">Expenses Today</span>
+          <h3 class="stat-value" id="today-total">₹0.00</h3>
+          <span class="stat-subtext" id="today-count">0 transactions today</span>
+        </div>
+      </div>
+
+      <!-- This Month's Total Expense -->
+      <div class="stat-card stat-month">
+        <div class="stat-icon-wrapper">
+          <i class="fa-solid fa-calendar-days"></i>
+        </div>
+        <div class="stat-info">
+          <span class="stat-label">Expenses This Month</span>
+          <h3 class="stat-value" id="month-total">₹0.00</h3>
+          <span class="stat-subtext" id="month-name">Current Month</span>
+        </div>
+      </div>
+
+      <!-- Total Transactions Count -->
+      <div class="stat-card stat-transactions">
+        <div class="stat-icon-wrapper">
+          <i class="fa-solid fa-receipt"></i>
+        </div>
+        <div class="stat-info">
+          <span class="stat-label">Total Transactions</span>
+          <h3 class="stat-value" id="total-count">0</h3>
+          <span class="stat-subtext">Total recorded entries</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Analytics & Category Breakdown -->
+    <section class="analytics-section">
+      <!-- Category Chart Card -->
+      <div class="card chart-card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-chart-pie"></i> Category Spending Chart</h3>
+          <span class="badge-pill">Visual Insight</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="categoryChart"></canvas>
+          <div id="no-chart-data" class="no-data-msg hidden">
+            <i class="fa-solid fa-chart-area"></i>
+            <p>No expense data available to render chart.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category Breakdown Progress List -->
+      <div class="card breakdown-card">
+        <div class="card-header">
+          <h3><i class="fa-solid fa-layer-group"></i> Category Breakdown</h3>
+          <span class="badge-pill">Distribution</span>
+        </div>
+        <div id="category-progress-list" class="category-progress-list">
+          <!-- Dynamic progress bar items -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Expense History Section -->
+    <section class="card history-section">
+      <div class="history-header">
+        <div class="title-group">
+          <h2><i class="fa-solid fa-clock-rotate-left"></i> Expense History</h2>
+          <span class="count-badge" id="filtered-count-badge">0 Items</span>
+        </div>
+
+        <!-- Filters & Search Controls -->
+        <div class="filter-controls">
+          <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="search-input" placeholder="Search description..." aria-label="Search description">
+          </div>
+          
+          <div class="select-wrapper">
+            <i class="fa-solid fa-filter"></i>
+            <select id="filter-category" aria-label="Filter by Category">
+              <option value="All">All Categories</option>
+              <option value="Food">🍔 Food</option>
+              <option value="Travel">🚗 Travel</option>
+              <option value="Shopping">🛍️ Shopping</option>
+              <option value="Education">📚 Education</option>
+              <option value="Entertainment">🎬 Entertainment</option>
+              <option value="Bills">💡 Bills</option>
+              <option value="Other">📦 Other</option>
+            </select>
+          </div>
+
+          <div class="select-wrapper">
+            <i class="fa-solid fa-arrow-down-short-wide"></i>
+            <select id="sort-by" aria-label="Sort Expenses">
+              <option value="date-desc">Newest First</option>
+              <option value="date-asc">Oldest First</option>
+              <option value="amount-desc">Amount: High to Low</option>
+              <option value="amount-asc">Amount: Low to High</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Expense History Table -->
+      <div class="table-responsive">
+        <table class="expense-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th class="text-right">Amount (₹)</th>
+              <th class="text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody id="expense-list-body">
+            <!-- Dynamic rows will be rendered here -->
+          </tbody>
+        </table>
+        
+        <!-- Empty State Message -->
+        <div id="empty-state" class="empty-state hidden">
+          <div class="empty-icon"><i class="fa-solid fa-receipt"></i></div>
+          <h3>No expenses found</h3>
+          <p>Add your first expense or clear active filters to view your spending history.</p>
+          <button class="btn btn-primary btn-sm" id="empty-add-btn">
+            <i class="fa-solid fa-plus"></i> Add Expense
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>RupeeTrack &copy; 2026 • Simple & Beginner-Friendly Expense Tracker</p>
+    </footer>
+  </div>
+
+  <!-- Add / Edit Expense Modal Dialog -->
+  <div class="modal-overlay" id="expense-modal">
+    <div class="modal-card" role="dialog" aria-labelledby="modal-title" aria-modal="true">
+      <div class="modal-header">
+        <h2 id="modal-title"><i class="fa-solid fa-circle-plus"></i> Add New Expense</h2>
+        <button class="close-btn" id="close-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      
+      <form id="expense-form" class="expense-form">
+        <!-- Hidden Expense ID (for Edit mode) -->
+        <input type="hidden" id="expense-id" value="">
+
+        <!-- Amount (₹) -->
+        <div class="form-group">
+          <label for="expense-amount">Amount (in ₹) <span class="required">*</span></label>
+          <div class="input-with-symbol">
+            <span class="currency-symbol">₹</span>
+            <input 
+              type="number" 
+              id="expense-amount" 
+              placeholder="0.00" 
+              step="0.01" 
+              min="0.01" 
+              required
+            >
+          </div>
+        </div>
+
+        <!-- Category Dropdown -->
+        <div class="form-group">
+          <label for="expense-category">Category <span class="required">*</span></label>
+          <select id="expense-category" required>
+            <option value="" disabled selected>Select Category</option>
+            <option value="Food">🍔 Food</option>
+            <option value="Travel">🚗 Travel</option>
+            <option value="Shopping">🛍️ Shopping</option>
+            <option value="Education">📚 Education</option>
+            <option value="Entertainment">🎬 Entertainment</option>
+            <option value="Bills">💡 Bills</option>
+            <option value="Other">📦 Other</option>
+          </select>
+        </div>
+
+        <!-- Date Input -->
+        <div class="form-group">
+          <label for="expense-date">Date <span class="required">*</span></label>
+          <input type="date" id="expense-date" required>
+        </div>
+
+        <!-- Description Note -->
+        <div class="form-group">
+          <label for="expense-description">Description / Note <span class="required">*</span></label>
+          <input 
+            type="text" 
+            id="expense-description" 
+            placeholder="e.g. Dinner with family, Grocery items, Internet bill" 
+            maxlength="100"
+            required
+          >
+        </div>
+
+        <!-- Form Modal Action Buttons -->
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancel-modal-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="save-expense-btn">
+            <i class="fa-solid fa-floppy-disk"></i> Save Expense
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Main Application Script -->
+  <script src="app.js"></script>
+</body>
+</html>
