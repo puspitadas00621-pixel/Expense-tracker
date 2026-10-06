@@ -1,7 +1,7 @@
 /**
- * RupeeTrack - Application Logic
- * Standard Vanilla JS implementation with LocalStorage persistence, full CRUD (Add/Edit/Delete),
- * CSV export, dynamic search/filters, sorting, and Chart.js integration.
+ * RupeeTrack - Application Engine with Supabase Cloud Database Integration & Local Storage Fallback
+ * Features: Full CRUD (Create, Read, Update, Delete) in Supabase PostgreSQL, Realtime Multi-Device Sync,
+ * LocalStorage fallback mode, CSV Export, Interactive Chart.js charts, and category breakdown.
  */
 
 // Category Config with Icons, Colors, and Badges
@@ -15,11 +15,11 @@ const CATEGORY_CONFIG = {
   Other: { icon: 'fa-box', color: '#64748b', bgClass: 'badge-other', label: 'Other' }
 };
 
-// Initial Sample Demo Data (Loaded if user has no saved expenses)
+// Initial Sample Demo Data (Loaded when using LocalStorage without saved entries)
 const INITIAL_DEMO_EXPENSES = [
   { id: '1', amount: 450, category: 'Food', date: getRelativeDate(0), description: 'Lunch with team' },
   { id: '2', amount: 1200, category: 'Bills', date: getRelativeDate(-1), description: 'Broadband Internet Bill' },
-  { id: '3', amount: 850, category: 'Shopping', date: getRelativeDate(-2), description: 'New Shoes & Apparel' },
+  { id: '3', amount: 850, category: 'Shopping', date: getRelativeDate(-2), description: 'New Running Shoes' },
   { id: '4', amount: 250, category: 'Travel', date: getRelativeDate(-3), description: 'Taxi fare to office' },
   { id: '5', amount: 1500, category: 'Education', date: getRelativeDate(-5), description: 'Online Course Certificate' },
   { id: '6', amount: 600, category: 'Entertainment', date: getRelativeDate(-7), description: 'Movie tickets & popcorn' },
@@ -30,6 +30,11 @@ const INITIAL_DEMO_EXPENSES = [
 let expenses = [];
 let categoryChart = null;
 
+// Supabase State Variables
+let supabaseClient = null;
+let isSupabaseConnected = false;
+let supabaseChannel = null;
+
 // DOM Elements Reference Object
 const elements = {
   // Dashboard & Banner Nodes
@@ -38,9 +43,10 @@ const elements = {
   monthTotal: document.getElementById('month-total'),
   monthName: document.getElementById('month-name'),
   totalCount: document.getElementById('total-count'),
+  storageModeSubtext: document.getElementById('storage-mode-subtext'),
   monthlyBannerAmount: document.querySelector('#monthly-summary-banner .highlight-amount'),
   
-  // Modal & Form Nodes
+  // Expense Modal & Form Nodes
   modalTitle: document.getElementById('modal-title'),
   addExpenseBtn: document.getElementById('add-expense-btn'),
   exportCsvBtn: document.getElementById('export-csv-btn'),
@@ -54,6 +60,21 @@ const elements = {
   expenseCategory: document.getElementById('expense-category'),
   expenseDate: document.getElementById('expense-date'),
   expenseDescription: document.getElementById('expense-description'),
+
+  // Supabase Config Modal & Form Nodes
+  supabaseConfigBtn: document.getElementById('supabase-config-btn'),
+  supabaseStatusText: document.getElementById('supabase-status-text'),
+  supabaseModal: document.getElementById('supabase-modal'),
+  closeSupabaseModalBtn: document.getElementById('close-supabase-modal-btn'),
+  supabaseForm: document.getElementById('supabase-form'),
+  supabaseUrlInput: document.getElementById('supabase-url'),
+  supabaseKeyInput: document.getElementById('supabase-key'),
+  supabaseStatusBox: document.getElementById('supabase-status-box'),
+  supabaseConnectionMsg: document.getElementById('supabase-connection-msg'),
+  connectSupabaseBtn: document.getElementById('connect-supabase-btn'),
+  disconnectSupabaseBtn: document.getElementById('disconnect-supabase-btn'),
+  copySqlBtn: document.getElementById('copy-sql-btn'),
+  sqlSchemaCode: document.getElementById('sql-schema-code'),
   
   // History Table & Controls
   expenseListBody: document.getElementById('expense-list-body'),
@@ -74,52 +95,107 @@ const elements = {
 // ==========================================
 // Initialization & Event Listeners
 // ==========================================
-document.addEventListener('DOMContentLoaded', () => {
-  initApp();
+document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
+  await initSupabaseClient();
+  await loadAndRenderExpenses();
 });
 
-function initApp() {
-  // Set default date input to Today
-  if (elements.expenseDate) {
-    elements.expenseDate.value = getTodayDateString();
+/**
+ * Attempt to initialize Supabase client using stored credentials
+ */
+async function initSupabaseClient() {
+  const savedConfig = localStorage.getItem('rupee_track_supabase_config');
+  if (!savedConfig) {
+    updateSupabaseUIStatus(false, 'Local Storage Mode (Click to configure Supabase Cloud)');
+    return;
   }
 
-  // Load saved expenses from LocalStorage
-  const savedExpenses = localStorage.getItem('rupee_track_expenses');
-  if (savedExpenses) {
-    try {
-      expenses = JSON.parse(savedExpenses);
-    } catch (e) {
-      console.error('Failed to parse localStorage data:', e);
-      expenses = [...INITIAL_DEMO_EXPENSES];
+  try {
+    const { url, key } = JSON.parse(savedConfig);
+    if (!url || !key) {
+      updateSupabaseUIStatus(false, 'Local Storage Mode');
+      return;
     }
-  } else {
-    // Seed initial demo data for first time visitors
-    expenses = [...INITIAL_DEMO_EXPENSES];
-    saveExpensesToLocalStorage();
-  }
 
-  // Render initial UI components
-  renderApp();
+    if (window.supabase) {
+      supabaseClient = window.supabase.createClient(url, key);
+      
+      // Test table connection
+      const { error } = await supabaseClient.from('expenses').select('id').limit(1);
+      
+      if (error) {
+        console.warn('Supabase connection query warning:', error.message);
+        // Table might not exist yet or RLS policy needs setup
+        if (error.message.includes('relation "expenses" does not exist') || error.code === '42P01') {
+          updateSupabaseUIStatus(false, 'Supabase Connected - Table "expenses" missing. Run SQL Setup!');
+          showToast('Supabase connected, but "expenses" table was not found. Please run the SQL setup script.', 'danger');
+          return;
+        }
+      }
+
+      isSupabaseConnected = true;
+      updateSupabaseUIStatus(true, 'Supabase Connected & Syncing');
+      
+      // Setup Realtime Sync Listener across tabs/devices
+      subscribeToRealtimeSync();
+    }
+  } catch (err) {
+    console.error('Error initializing Supabase client:', err);
+    isSupabaseConnected = false;
+    updateSupabaseUIStatus(false, 'Supabase Error: ' + err.message);
+  }
 }
 
+/**
+ * Setup Realtime Database Subscription for instant cross-device updates
+ */
+function subscribeToRealtimeSync() {
+  if (!supabaseClient) return;
+
+  if (supabaseChannel) {
+    supabaseClient.removeChannel(supabaseChannel);
+  }
+
+  supabaseChannel = supabaseClient
+    .channel('public:expenses')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, async (payload) => {
+      console.log('Realtime Postgres Change Received:', payload);
+      await loadAndRenderExpenses(false);
+    })
+    .subscribe();
+}
+
+/**
+ * Setup all DOM Event Listeners
+ */
 function setupEventListeners() {
-  // Modal Trigger Buttons
+  // Expense Modal Controls
   elements.addExpenseBtn.addEventListener('click', () => openModal('add'));
   elements.emptyAddBtn.addEventListener('click', () => openModal('add'));
   elements.closeModalBtn.addEventListener('click', closeModal);
   elements.cancelModalBtn.addEventListener('click', closeModal);
   
-  // Close modal when clicking outside modal-card on backdrop
   elements.expenseModal.addEventListener('click', (e) => {
     if (e.target === elements.expenseModal) closeModal();
   });
 
-  // ESC Key listener to close modal
+  // Supabase Modal Controls
+  elements.supabaseConfigBtn.addEventListener('click', openSupabaseModal);
+  elements.closeSupabaseModalBtn.addEventListener('click', closeSupabaseModal);
+  elements.supabaseModal.addEventListener('click', (e) => {
+    if (e.target === elements.supabaseModal) closeSupabaseModal();
+  });
+
+  elements.supabaseForm.addEventListener('submit', handleConnectSupabase);
+  elements.disconnectSupabaseBtn.addEventListener('click', handleDisconnectSupabase);
+  elements.copySqlBtn.addEventListener('click', handleCopySql);
+
+  // Global ESC Key Handler
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && elements.expenseModal.classList.contains('active')) {
-      closeModal();
+    if (e.key === 'Escape') {
+      if (elements.expenseModal.classList.contains('active')) closeModal();
+      if (elements.supabaseModal.classList.contains('active')) closeSupabaseModal();
     }
   });
 
@@ -131,13 +207,78 @@ function setupEventListeners() {
   elements.filterCategory.addEventListener('change', renderExpenseHistory);
   elements.sortBy.addEventListener('change', renderExpenseHistory);
 
-  // Additional Feature Actions
+  // Action Buttons
   elements.resetDataBtn.addEventListener('click', handleResetDemoData);
   elements.exportCsvBtn.addEventListener('click', exportExpensesToCSV);
 }
 
 // ==========================================
-// Core Calculation & Render Functions
+// Unified Data Fetch & Sync Layer
+// ==========================================
+
+/**
+ * Load expenses from Supabase or LocalStorage and trigger full UI render
+ */
+async function loadAndRenderExpenses(showLoadingToast = false) {
+  if (isSupabaseConnected && supabaseClient) {
+    try {
+      const { data, error } = await supabaseClient
+        .from('expenses')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (error) {
+        console.error('Failed to fetch from Supabase:', error);
+        showToast('Error loading from Supabase: ' + error.message, 'danger');
+        // Fallback to local
+        expenses = loadFromLocalStorage();
+      } else {
+        expenses = data.map(item => ({
+          id: item.id,
+          amount: Number(item.amount),
+          category: item.category,
+          date: item.date,
+          description: item.description
+        }));
+        if (showLoadingToast) {
+          showToast('Loaded latest expenses from Supabase!', 'success');
+        }
+      }
+    } catch (err) {
+      console.error('Supabase fetch exception:', err);
+      expenses = loadFromLocalStorage();
+    }
+  } else {
+    // Local Storage Mode
+    expenses = loadFromLocalStorage();
+  }
+
+  renderApp();
+}
+
+function loadFromLocalStorage() {
+  const saved = localStorage.getItem('rupee_track_expenses');
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch (e) {
+      console.error('Failed to parse localStorage data:', e);
+      return [...INITIAL_DEMO_EXPENSES];
+    }
+  } else {
+    // Seed initial demo data for first time visitors
+    const initial = [...INITIAL_DEMO_EXPENSES];
+    localStorage.setItem('rupee_track_expenses', JSON.stringify(initial));
+    return initial;
+  }
+}
+
+function saveToLocalStorage() {
+  localStorage.setItem('rupee_track_expenses', JSON.stringify(expenses));
+}
+
+// ==========================================
+// Core Render & Calculations
 // ==========================================
 
 function renderApp() {
@@ -157,13 +298,11 @@ function updateDashboardStats() {
   expenses.forEach(exp => {
     const amount = Number(exp.amount) || 0;
     
-    // Total Today Calculation
     if (exp.date === todayStr) {
       todaySum += amount;
       todayTxCount++;
     }
 
-    // Total This Month Calculation
     if (isDateInCurrentMonth(exp.date)) {
       monthSum += amount;
     }
@@ -173,7 +312,6 @@ function updateDashboardStats() {
   const formattedMonth = formatCurrency(monthSum);
   const totalTxCount = expenses.length;
 
-  // DOM Updates
   elements.todayTotal.textContent = formattedToday;
   elements.todayCount.textContent = `${todayTxCount} transaction${todayTxCount === 1 ? '' : 's'} today`;
   
@@ -181,6 +319,9 @@ function updateDashboardStats() {
   elements.monthName.textContent = getMonthNameHeader();
   
   elements.totalCount.textContent = totalTxCount;
+  elements.storageModeSubtext.textContent = isSupabaseConnected 
+    ? 'Synced with Supabase Cloud' 
+    : 'Stored in Browser LocalStorage';
   
   // Requirement 7: Monthly Summary Banner Text
   elements.monthlyBannerAmount.textContent = formattedMonth;
@@ -191,14 +332,12 @@ function renderExpenseHistory() {
   const selectedCategory = elements.filterCategory.value;
   const sortOption = elements.sortBy ? elements.sortBy.value : 'date-desc';
 
-  // Search & Category Filtering
   let filtered = expenses.filter(exp => {
     const matchesSearch = exp.description.toLowerCase().includes(searchTerm);
     const matchesCategory = (selectedCategory === 'All' || exp.category === selectedCategory);
     return matchesSearch && matchesCategory;
   });
 
-  // Sorting Logic
   filtered.sort((a, b) => {
     if (sortOption === 'date-asc') {
       return new Date(a.date) - new Date(b.date);
@@ -207,14 +346,11 @@ function renderExpenseHistory() {
     } else if (sortOption === 'amount-asc') {
       return Number(a.amount) - Number(b.amount);
     } else {
-      return new Date(b.date) - new Date(a.date); // Default: Newest first
+      return new Date(b.date) - new Date(a.date);
     }
   });
 
-  // Filter count badge
   elements.filteredCountBadge.textContent = `${filtered.length} Item${filtered.length === 1 ? '' : 's'}`;
-
-  // Clear existing table contents
   elements.expenseListBody.innerHTML = '';
 
   if (filtered.length === 0) {
@@ -226,7 +362,6 @@ function renderExpenseHistory() {
   elements.emptyState.classList.add('hidden');
   elements.expenseListBody.parentElement.classList.remove('hidden');
 
-  // Build rows dynamically
   filtered.forEach(exp => {
     const tr = document.createElement('tr');
     const catConfig = CATEGORY_CONFIG[exp.category] || CATEGORY_CONFIG.Other;
@@ -364,10 +499,10 @@ function renderCategoryBreakdown() {
 }
 
 // ==========================================
-// CRUD Actions & Event Handlers
+// Expense CRUD Operations (Supabase & Local)
 // ==========================================
 
-function handleAddOrUpdateExpense(e) {
+async function handleAddOrUpdateExpense(e) {
   e.preventDefault();
 
   const idVal = elements.expenseId ? elements.expenseId.value : '';
@@ -376,13 +511,13 @@ function handleAddOrUpdateExpense(e) {
   const dateVal = elements.expenseDate.value;
   const descriptionVal = elements.expenseDescription.value.trim();
 
-  // Input Validation
+  // Validations
   if (isNaN(amountVal) || amountVal <= 0) {
     showToast('Please enter a valid amount greater than 0.', 'danger');
     return;
   }
   if (!categoryVal) {
-    showToast('Please select a valid expense category.', 'danger');
+    showToast('Please select a valid category.', 'danger');
     return;
   }
   if (!dateVal) {
@@ -390,39 +525,60 @@ function handleAddOrUpdateExpense(e) {
     return;
   }
   if (!descriptionVal) {
-    showToast('Please enter a description for the expense.', 'danger');
+    showToast('Please enter a description.', 'danger');
     return;
   }
 
-  if (idVal) {
-    // EDIT MODE: Update existing expense
-    const index = expenses.findIndex(exp => exp.id === idVal);
-    if (index !== -1) {
-      expenses[index] = {
-        id: idVal,
-        amount: amountVal,
-        category: categoryVal,
-        date: dateVal,
-        description: descriptionVal
-      };
-      showToast('Expense updated successfully!', 'success');
+  const expenseData = {
+    amount: amountVal,
+    category: categoryVal,
+    date: dateVal,
+    description: descriptionVal
+  };
+
+  closeModal();
+
+  if (isSupabaseConnected && supabaseClient) {
+    try {
+      if (idVal) {
+        // UPDATE in Supabase
+        const { error } = await supabaseClient
+          .from('expenses')
+          .update(expenseData)
+          .eq('id', idVal);
+
+        if (error) throw error;
+        showToast('Expense updated in Supabase cloud!', 'success');
+      } else {
+        // INSERT into Supabase
+        const { error } = await supabaseClient
+          .from('expenses')
+          .insert([expenseData]);
+
+        if (error) throw error;
+        showToast('Expense saved to Supabase cloud!', 'success');
+      }
+      await loadAndRenderExpenses();
+    } catch (err) {
+      console.error('Supabase write error:', err);
+      showToast('Supabase Error: ' + err.message, 'danger');
     }
   } else {
-    // ADD MODE: Create new expense object
-    const newExpense = {
-      id: Date.now().toString(),
-      amount: amountVal,
-      category: categoryVal,
-      date: dateVal,
-      description: descriptionVal
-    };
-    expenses.push(newExpense);
-    showToast('Expense saved successfully!', 'success');
+    // LOCAL STORAGE FALLBACK
+    if (idVal) {
+      const idx = expenses.findIndex(exp => exp.id === idVal);
+      if (idx !== -1) {
+        expenses[idx] = { id: idVal, ...expenseData };
+        showToast('Expense updated locally!', 'success');
+      }
+    } else {
+      const newExpense = { id: Date.now().toString(), ...expenseData };
+      expenses.push(newExpense);
+      showToast('Expense saved locally!', 'success');
+    }
+    saveToLocalStorage();
+    renderApp();
   }
-
-  saveExpensesToLocalStorage();
-  closeModal();
-  renderApp();
 }
 
 function handleEditExpense(id) {
@@ -440,24 +596,179 @@ function handleEditExpense(id) {
   elements.expenseAmount.focus();
 }
 
-function handleDeleteExpense(id) {
-  const index = expenses.findIndex(exp => exp.id === id);
-  if (index !== -1) {
-    const deletedExp = expenses[index];
-    expenses.splice(index, 1);
-    saveExpensesToLocalStorage();
+async function handleDeleteExpense(id) {
+  const deletedExp = expenses.find(exp => exp.id === id);
+  if (!deletedExp) return;
+
+  if (isSupabaseConnected && supabaseClient) {
+    try {
+      const { error } = await supabaseClient
+        .from('expenses')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      showToast(`Deleted "${deletedExp.description}" from Supabase!`, 'danger');
+      await loadAndRenderExpenses();
+    } catch (err) {
+      console.error('Supabase delete error:', err);
+      showToast('Supabase Delete Error: ' + err.message, 'danger');
+    }
+  } else {
+    expenses = expenses.filter(exp => exp.id !== id);
+    saveToLocalStorage();
     renderApp();
-    showToast(`Deleted "${deletedExp.description}" (₹${deletedExp.amount})`, 'danger');
+    showToast(`Deleted "${deletedExp.description}" locally`, 'danger');
   }
 }
 
-function handleResetDemoData() {
-  if (confirm('Are you sure you want to reset expenses to initial sample data?')) {
-    expenses = [...INITIAL_DEMO_EXPENSES];
-    saveExpensesToLocalStorage();
-    renderApp();
-    showToast('Demo dataset restored successfully.', 'success');
+async function handleResetDemoData() {
+  if (confirm('Are you sure you want to reset to initial sample demo expenses?')) {
+    if (isSupabaseConnected && supabaseClient) {
+      try {
+        // Delete all rows in Supabase
+        await supabaseClient.from('expenses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        
+        // Insert initial demo entries
+        const demoInsert = INITIAL_DEMO_EXPENSES.map(item => ({
+          amount: item.amount,
+          category: item.category,
+          date: item.date,
+          description: item.description
+        }));
+
+        const { error } = await supabaseClient.from('expenses').insert(demoInsert);
+        if (error) throw error;
+
+        showToast('Supabase database reset to sample entries!', 'success');
+        await loadAndRenderExpenses();
+      } catch (err) {
+        console.error('Supabase reset error:', err);
+        showToast('Reset Error: ' + err.message, 'danger');
+      }
+    } else {
+      expenses = [...INITIAL_DEMO_EXPENSES];
+      saveToLocalStorage();
+      renderApp();
+      showToast('Demo dataset restored locally.', 'success');
+    }
   }
+}
+
+// ==========================================
+// Supabase Configuration Modal Logic
+// ==========================================
+
+function openSupabaseModal() {
+  const savedConfig = localStorage.getItem('rupee_track_supabase_config');
+  if (savedConfig) {
+    try {
+      const { url, key } = JSON.parse(savedConfig);
+      elements.supabaseUrlInput.value = url || '';
+      elements.supabaseKeyInput.value = key || '';
+    } catch (e) {}
+  }
+
+  elements.supabaseModal.classList.add('active');
+}
+
+function closeSupabaseModal() {
+  elements.supabaseModal.classList.remove('active');
+}
+
+async function handleConnectSupabase(e) {
+  e.preventDefault();
+
+  const url = elements.supabaseUrlInput.value.trim();
+  const key = elements.supabaseKeyInput.value.trim();
+
+  if (!url || !key) {
+    showToast('Please enter both Supabase URL and Anon API Key.', 'danger');
+    return;
+  }
+
+  elements.connectSupabaseBtn.disabled = true;
+  elements.connectSupabaseBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Connecting...`;
+
+  try {
+    if (!window.supabase) {
+      throw new Error('Supabase client library not loaded. Check internet connection.');
+    }
+
+    const testClient = window.supabase.createClient(url, key);
+    
+    // Test query on 'expenses' table
+    const { error } = await testClient.from('expenses').select('id').limit(1);
+
+    if (error && (error.code === '42P01' || error.message.includes('does not exist'))) {
+      throw new Error('Connected to Supabase, but the "expenses" table does not exist. Please run the SQL setup script below!');
+    } else if (error && error.status !== 200 && !error.message.includes('0 rows')) {
+      throw new Error(error.message);
+    }
+
+    // Save configuration
+    localStorage.setItem('rupee_track_supabase_config', JSON.stringify({ url, key }));
+    supabaseClient = testClient;
+    isSupabaseConnected = true;
+
+    updateSupabaseUIStatus(true, 'Connected & Syncing with Supabase!');
+    subscribeToRealtimeSync();
+
+    closeSupabaseModal();
+    showToast('Connected to Supabase! Syncing data across devices...', 'success');
+    
+    await loadAndRenderExpenses(true);
+  } catch (err) {
+    console.error('Supabase Connection Error:', err);
+    updateSupabaseUIStatus(false, err.message);
+    showToast(err.message, 'danger');
+  } finally {
+    elements.connectSupabaseBtn.disabled = false;
+    elements.connectSupabaseBtn.innerHTML = `<i class="fa-solid fa-plug"></i> Connect & Sync`;
+  }
+}
+
+function handleDisconnectSupabase() {
+  localStorage.removeItem('rupee_track_supabase_config');
+  supabaseClient = null;
+  isSupabaseConnected = false;
+
+  if (supabaseChannel) {
+    supabaseClient?.removeChannel(supabaseChannel);
+    supabaseChannel = null;
+  }
+
+  updateSupabaseUIStatus(false, 'Local Storage Mode');
+  closeSupabaseModal();
+  showToast('Switched to LocalStorage mode.', 'success');
+  loadAndRenderExpenses();
+}
+
+function updateSupabaseUIStatus(connected, message) {
+  if (connected) {
+    elements.supabaseConfigBtn.className = 'btn btn-supabase connected';
+    elements.supabaseStatusText.textContent = 'Supabase Sync 🟢';
+    elements.supabaseStatusBox.className = 'supabase-status-box status-connected';
+    elements.supabaseConnectionMsg.textContent = 'Status: ' + message;
+  } else {
+    elements.supabaseConfigBtn.className = 'btn btn-supabase';
+    elements.supabaseStatusText.textContent = 'Supabase Sync';
+    elements.supabaseStatusBox.className = 'supabase-status-box status-error';
+    elements.supabaseConnectionMsg.textContent = 'Status: ' + message;
+  }
+}
+
+function handleCopySql() {
+  const codeText = elements.sqlSchemaCode.textContent;
+  navigator.clipboard.writeText(codeText).then(() => {
+    elements.copySqlBtn.innerHTML = `<i class="fa-solid fa-check"></i> Copied!`;
+    showToast('SQL schema copied to clipboard!', 'success');
+    setTimeout(() => {
+      elements.copySqlBtn.innerHTML = `<i class="fa-solid fa-copy"></i> Copy SQL`;
+    }, 2500);
+  }).catch(err => {
+    showToast('Failed to copy text: ' + err.message, 'danger');
+  });
 }
 
 function exportExpensesToCSV() {
@@ -484,7 +795,7 @@ function exportExpensesToCSV() {
 }
 
 // ==========================================
-// Utility Helper Functions
+// Utility Helpers
 // ==========================================
 
 function openModal(mode = 'add') {
@@ -502,10 +813,6 @@ function closeModal() {
   elements.expenseModal.classList.remove('active');
   elements.expenseForm.reset();
   if (elements.expenseId) elements.expenseId.value = '';
-}
-
-function saveExpensesToLocalStorage() {
-  localStorage.setItem('rupee_track_expenses', JSON.stringify(expenses));
 }
 
 function calculateCategoryTotals() {
@@ -600,5 +907,5 @@ function showToast(message, type = 'success') {
     toast.style.transform = 'translateY(100%)';
     toast.style.transition = 'all 0.3s ease';
     setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  }, 3500);
 }

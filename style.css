@@ -196,6 +196,29 @@ h1, h2, h3, h4 {
   border-color: #f87171;
 }
 
+.btn-supabase {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1.5px solid #a7f3d0;
+}
+
+.btn-supabase:hover {
+  background: #d1fae5;
+  color: #047857;
+  border-color: #6ee7b7;
+}
+
+.btn-supabase.connected {
+  background: #10b981;
+  color: #ffffff;
+  border-color: #059669;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+}
+
+.btn-supabase.connected:hover {
+  background: #059669;
+}
+
 .btn-sm {
   padding: 7px 12px;
   font-size: 0.85rem;
@@ -843,6 +866,108 @@ h1, h2, h3, h4 {
   padding: 16px 0;
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+/* Supabase Modal & Settings Styles */
+.modal-card-wide {
+  max-width: 620px !important;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.modal-intro {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.supabase-status-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  transition: var(--transition-fast);
+}
+
+.supabase-status-box.status-connected {
+  background: #d1fae5;
+  color: #047857;
+  border-color: #6ee7b7;
+}
+
+.supabase-status-box.status-error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.sql-guide-details {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  background: #f8fafc;
+}
+
+.sql-guide-details summary {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--primary-color);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.sql-guide-content {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.code-block-wrapper {
+  position: relative;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.code-block-wrapper pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.copy-sql-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.copy-sql-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
 }
 
 /* Helper Utilities */

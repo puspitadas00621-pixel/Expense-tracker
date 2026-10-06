@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RupeeTrack - Modern Expense Tracker</title>
-  <meta name="description" content="A simple, modern, and beginner-friendly expense tracker app to manage daily and monthly finances in ₹ (Rupees).">
+  <meta name="description" content="A simple, modern, and beginner-friendly expense tracker app to manage daily and monthly finances in ₹ (Rupees) with Supabase cloud sync.">
   
   <!-- Google Fonts: Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,6 +16,9 @@
   
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Supabase JS Client SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Custom Stylesheet -->
   <link rel="stylesheet" href="style.css">
@@ -39,6 +42,10 @@
           <i class="fa-solid fa-plus"></i>
           <span>Add Expense</span>
         </button>
+        <button id="supabase-config-btn" class="btn btn-supabase" title="Configure Supabase Cloud Database">
+          <i class="fa-solid fa-database"></i>
+          <span id="supabase-status-text" class="btn-text-desktop">Supabase Sync</span>
+        </button>
         <button id="export-csv-btn" class="btn btn-outline" title="Export Expenses to CSV">
           <i class="fa-solid fa-file-csv"></i>
           <span class="btn-text-desktop">Export CSV</span>
@@ -59,10 +66,10 @@
         <h2 class="banner-title" id="monthly-summary-banner">
           Your total expense this month is <span class="highlight-amount">₹0.00</span>.
         </h2>
-        <p class="banner-subtext">Track every rupee to build healthy spending habits!</p>
+        <p class="banner-subtext">Track every rupee & sync across all devices in real-time!</p>
       </div>
       <div class="banner-badge">
-        <i class="fa-solid fa-chart-line"></i>
+        <i class="fa-solid fa-cloud-arrow-up"></i>
       </div>
     </section>
 
@@ -100,7 +107,7 @@
         <div class="stat-info">
           <span class="stat-label">Total Transactions</span>
           <h3 class="stat-value" id="total-count">0</h3>
-          <span class="stat-subtext">Total recorded entries</span>
+          <span class="stat-subtext" id="storage-mode-subtext">Total recorded entries</span>
         </div>
       </div>
     </section>
@@ -206,7 +213,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-      <p>RupeeTrack &copy; 2026 • Simple & Beginner-Friendly Expense Tracker</p>
+      <p>RupeeTrack &copy; 2026 • Cloud-Powered Expense Tracker with Supabase Integration</p>
     </footer>
   </div>
 
@@ -279,6 +286,94 @@
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Supabase Settings Modal Dialog -->
+  <div class="modal-overlay" id="supabase-modal">
+    <div class="modal-card modal-card-wide" role="dialog" aria-labelledby="supabase-modal-title" aria-modal="true">
+      <div class="modal-header">
+        <h2 id="supabase-modal-title"><i class="fa-solid fa-database"></i> Supabase Database Settings</h2>
+        <button class="close-btn" id="close-supabase-modal-btn" aria-label="Close modal">&times;</button>
+      </div>
+      
+      <div class="modal-body">
+        <p class="modal-intro">
+          Connect your free <strong>Supabase</strong> PostgreSQL database to store and sync your expenses across multiple devices in real-time.
+        </p>
+
+        <form id="supabase-form" class="expense-form">
+          <!-- Supabase URL -->
+          <div class="form-group">
+            <label for="supabase-url">Supabase Project URL <span class="required">*</span></label>
+            <input 
+              type="url" 
+              id="supabase-url" 
+              placeholder="https://your-project-id.supabase.co"
+              required
+            >
+          </div>
+
+          <!-- Supabase Anon Key -->
+          <div class="form-group">
+            <label for="supabase-key">Supabase Anon / Public API Key <span class="required">*</span></label>
+            <input 
+              type="password" 
+              id="supabase-key" 
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." 
+              required
+            >
+          </div>
+
+          <div class="supabase-status-box" id="supabase-status-box">
+            <i class="fa-solid fa-circle-info"></i>
+            <span id="supabase-connection-msg">Status: Checking connection...</span>
+          </div>
+
+          <!-- Actions -->
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="disconnect-supabase-btn">
+              <i class="fa-solid fa-plug-circle-xmark"></i> Use LocalStorage
+            </button>
+            <button type="submit" class="btn btn-primary" id="connect-supabase-btn">
+              <i class="fa-solid fa-plug"></i> Connect & Sync
+            </button>
+          </div>
+        </form>
+
+        <!-- Collapsible SQL Setup Guide -->
+        <details class="sql-guide-details" open>
+          <summary><i class="fa-solid fa-code"></i> How to set up table in Supabase SQL Editor</summary>
+          <div class="sql-guide-content">
+            <p>1. Create a free project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</p>
+            <p>2. In your Supabase Dashboard, go to <strong>SQL Editor</strong>, paste this snippet, and click <strong>RUN</strong>:</p>
+            <div class="code-block-wrapper">
+              <pre><code id="sql-schema-code">-- Create Expenses Table
+CREATE TABLE IF NOT EXISTS expenses (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  amount NUMERIC NOT NULL,
+  category TEXT NOT NULL,
+  date DATE NOT NULL,
+  description TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+
+-- Allow Public Access for Personal Expense Tracking
+CREATE POLICY "Allow public full access" ON expenses
+  FOR ALL USING (true) WITH CHECK (true);</code></pre>
+              <button class="btn btn-sm btn-outline copy-sql-btn" id="copy-sql-btn">
+                <i class="fa-solid fa-copy"></i> Copy SQL
+              </button>
+            </div>
+            <p style="margin-top:8px; font-size:0.8rem; color:var(--text-muted);">
+              3. Copy your <strong>Project URL</strong> & <strong>anon public API key</strong> from <code>Project Settings -> API</code> into the form above.
+            </p>
+          </div>
+        </details>
+      </div>
     </div>
   </div>
 
